@@ -1,0 +1,6 @@
+/cmake-build-debug
+/.idea
+encrypto_table
+public_key
+secret_key
+test.txt
