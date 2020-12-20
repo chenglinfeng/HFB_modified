@@ -5,8 +5,8 @@
 #include <HFB/OTOfflineUtile.h>
 #include <HFB/OTOneUtil.h>
 #include "network.hpp"
-#include "HLT.h"
-#include "../dectree/common/dectree.h"
+#include "HLT_ad2.h"
+#include "../../dectree/common/dectree.h"
 #include "HFB/strategytb.h"
 #include "HFB/sealtable.h"
 using namespace std;
@@ -136,13 +136,13 @@ SealTable gen_seal_table(DecTree tree, string dectree_filename){
     return t;
 }
 
+
 void play_server(tcp::iostream &conn){
 
     timeval tbegin, tend;
     long int t_offline = 0;
     long int t_online = 0;
 
-    gettimeofday(&tbegin, NULL);
 
     const string filename[7] = {
             "/home/anson/Desktop/GBDT_Predict/HFB/dectree/UCI_dectrees/wine",
@@ -159,15 +159,19 @@ void play_server(tcp::iostream &conn){
     tree.read_from_file(filename[i]);
 
     tree.depthFullPad(); //full padding for testing
-
-    SealTable t = gen_seal_table(tree,filename[i]);
-    gettimeofday(&tend,NULL);
-    t_offline += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
-
     conn << filename[i] << '\n';
 
     conn << tree.num_attributes << '\n';
     conn << tree.num_dec_nodes << '\n';
+
+    /*######################################*/
+    // one ot offline
+    gettimeofday(&tbegin, NULL);
+    SealTable t = gen_seal_table(tree,filename[i]);
+    gettimeofday(&tend,NULL);
+    t_offline += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+    cout << "Comp Offline(gen seal table): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
+
 
 //    unsigned int m_encrypto_table_branch = 8;
 //    unsigned int m_encrypto_table_items = 16;
@@ -185,19 +189,8 @@ void play_server(tcp::iostream &conn){
     t.save_secret_key("secret_key_"+filename[i]);
     t.save_public_key("public_key_"+filename[i]);
 
-//    ofstream out = t.encrypto_table_to_stream();
-//    conn << out.rdbuf();
-//    out.flush();
 
-    unsigned int packing_value_en_len;
-    unsigned char* packing_value_en;
 
-    conn >> packing_value_en_len;
-    packing_value_en = new unsigned char[packing_value_en_len];
-    recv_arr(packing_value_en, packing_value_en_len, conn);
-
-    /*######################################*/
-    // one ot offline
     gettimeofday(&tbegin,NULL);
     unsigned char* a_half;
     unsigned int a_half_size = 33;
@@ -207,6 +200,7 @@ void play_server(tcp::iostream &conn){
     sender.offline_sender_gen_A_half(a_half);
     gettimeofday(&tend,NULL);
     t_offline += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+    cout << "Comp Offline(gen a half): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
 
 
     cout << "server to send" << endl;
@@ -220,7 +214,7 @@ void play_server(tcp::iostream &conn){
     unsigned char **b_half;
     b_half = new unsigned char *[one_ot_size];
 
-    unsigned int one_ot_n;
+    unsigned int one_ot_n = 256;
 
     unsigned int b_half_size;
     conn >> b_half_size;
@@ -240,8 +234,8 @@ void play_server(tcp::iostream &conn){
 
     gettimeofday(&tbegin,NULL);
 
-    conn >> one_ot_n;
-    cout << "one_ot_n:" << one_ot_n << endl;
+//    conn >> one_ot_n;
+//    cout << "one_ot_n:" << one_ot_n << endl;
     unsigned int *one_ot_key_set;
     one_ot_key_set = new unsigned int[one_ot_size * one_ot_n];
 
@@ -253,12 +247,31 @@ void play_server(tcp::iostream &conn){
 
     gettimeofday(&tend,NULL);
     t_offline += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+    cout << "Comp Offline(gen key set): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
 
     for (size_t i = 0; i < one_ot_size; i++)
     {
         delete[] b_half[i];
     }
     delete[] b_half;
+
+
+//
+//    int tmp = 1;
+//    conn << tmp;
+//    cout << filename[i] << endl;
+
+//    ofstream out = t.encrypto_table_to_stream();
+//    conn << out.rdbuf();
+//    out.flush();
+
+    unsigned int packing_value_en_len;
+    unsigned char* packing_value_en;
+
+    conn >> packing_value_en_len;
+    packing_value_en = new unsigned char[packing_value_en_len];
+    recv_arr(packing_value_en, packing_value_en_len, conn);
+
 
     /*######################################*/
     // one ot online
@@ -351,44 +364,6 @@ void play_client(tcp::iostream &conn){
     conn >> size;
     cout << "num_decision_node: " << size << endl;
 
-    SealTable t(features, size);
-    unsigned int node_shares_len = size;
-    t.load_encrpto_table("encrypto_table"+dectree_filename);
-//    ifstream in;
-//    conn >> in.rdbuf();
-//    t.stream_to_encrypto_table(in,t);
-
-    gettimeofday(&tbegin, NULL);
-
-    unsigned int select[features];
-
-    for (size_t i = 0; i < features; i++)
-    {
-        select[i] = i;
-        t.select_uint(i, select[i]);
-    }
-    unsigned  char* node_shares = (unsigned char*)malloc(size * sizeof(unsigned char));
-
-    for (size_t i = 0; i < node_shares_len; i++)
-    {
-        node_shares[i] = rand() % 256;
-    }
-
-    unsigned char* packing_value_en;
-    unsigned int packing_value_en_len = 16457;
-    packing_value_en = new unsigned char[packing_value_en_len];
-
-    t.compute_share(node_shares, node_shares_len);
-    t.save_packing_value_string(packing_value_en, packing_value_en_len);
-    t.release_packing_value();
-
-    gettimeofday(&tend, NULL);
-    t_offline += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
-
-    conn << packing_value_en_len;
-    send_arr(packing_value_en, packing_value_en_len, conn);
-
-
     /*######################################*/
     // one ot offline
     OTOfflineUtile receiver;
@@ -425,6 +400,7 @@ void play_client(tcp::iostream &conn){
     }
     gettimeofday(&tend, NULL);
     t_offline += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+    cout << "Comp Offline(gen receiver key): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
 
     // conn << b_half_size << '\n';
     cout << "b_half_size: " << b_half_size << endl;
@@ -440,8 +416,8 @@ void play_client(tcp::iostream &conn){
 //    }
     cout << "b_half all send" << endl;
 
-    conn << one_ot_n << '\n';
-    cout << "one_ot_n: " << one_ot_n << endl;
+//    conn << one_ot_n << '\n';
+//    cout << "one_ot_n: " << one_ot_n << endl;
 
     for (size_t i = 0; i < one_ot_size; i++)
     {
@@ -449,10 +425,55 @@ void play_client(tcp::iostream &conn){
     }
     delete[] b_half;
 
+//    int s;
+//    conn >> s;
+//    cout << s << endl;
+
     /*######################################*/
     // one ot online
 
-    gettimeofday(&tbegin,NULL);
+    SealTable t(features, size);
+    unsigned int node_shares_len = size;
+    t.load_encrpto_table("encrypto_table"+dectree_filename);
+//    ifstream in;
+//    conn >> in.rdbuf();
+//    t.stream_to_encrypto_table(in,t);
+
+    gettimeofday(&tbegin, NULL);
+
+    unsigned int select[features];
+
+    for (size_t i = 0; i < features; i++)
+    {
+        select[i] = i;
+        t.select_uint(i, select[i]);
+    }
+    unsigned  char* node_shares = (unsigned char*)malloc(size * sizeof(unsigned char));
+
+    for (size_t i = 0; i < node_shares_len; i++)
+    {
+        node_shares[i] = rand() % 256;
+    }
+
+    unsigned char* packing_value_en;
+    unsigned int packing_value_en_len = 16457;
+    packing_value_en = new unsigned char[packing_value_en_len];
+
+    t.compute_share(node_shares, node_shares_len);
+    t.save_packing_value_string(packing_value_en, packing_value_en_len);
+    t.release_packing_value();
+
+//    gettimeofday(&tend, NULL);
+//    t_online += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+//    cout << "Comp Online(compute sum and convert to share): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
+
+    conn << packing_value_en_len;
+    send_arr(packing_value_en, packing_value_en_len, conn);
+
+
+
+
+//    gettimeofday(&tbegin,NULL);
 
     unsigned char *one_re_share; // user has
 
@@ -465,8 +486,10 @@ void play_client(tcp::iostream &conn){
         offset[i] = (node_shares[i] - (unsigned char)one_ot_offline_choice) % one_ot_n;
     }
     /*#####################################################################*/
-    gettimeofday(&tend,NULL);
-    t_online += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+//    gettimeofday(&tend,NULL);
+//    t_online += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+//    cout << "Comp Online(gen offset): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
+
 
     cout << "one_ot_size: " << one_ot_size << endl;
     conn << one_ot_size;
@@ -477,7 +500,7 @@ void play_client(tcp::iostream &conn){
     unsigned int compress_node_exs_size;
     conn >> compress_node_exs_size;
 
-    gettimeofday(&tbegin,NULL);
+    //gettimeofday(&tbegin,NULL);
     compress_node_exs = new unsigned char[compress_node_exs_size];
     recv_arr(compress_node_exs, compress_node_exs_size, conn);
 
@@ -486,6 +509,7 @@ void play_client(tcp::iostream &conn){
 
     gettimeofday(&tend, NULL);
     t_online += ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec);
+    //cout << "Comp Online(get OTSC share): " << dec << ((tend.tv_sec-tbegin.tv_sec)*1000000 + tend.tv_usec - tbegin.tv_usec) << "us" << endl;
 
     cout << "Comp Offline: " << dec << t_offline << "us" << endl;
     cout << "Comp Online: " << dec << t_online << "us" << endl;
